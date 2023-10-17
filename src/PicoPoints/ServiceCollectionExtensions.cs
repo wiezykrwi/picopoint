@@ -14,16 +14,16 @@ public static class ServiceCollectionExtensions
             services.AddTransient(endpointType);
             
             var picoEndpointType = endpointType;
-            while (picoEndpointType != typeof(PicoEndpoint<,>))
+            while (!picoEndpointType.IsGenericType || picoEndpointType.GetGenericTypeDefinition() != typeof(PicoEndpoint<,>))
             {
-                if (picoEndpointType.BaseType == null) throw new ArgumentException("Invalid Endpoint definition");
-                picoEndpointType = picoEndpointType.BaseType;
+                picoEndpointType = picoEndpointType.BaseType ?? throw new ArgumentException("Invalid Endpoint definition");
             }
 
             var type = typeof(PicoEndpointRequestHandler<,>);
             var closedType = type.MakeGenericType(picoEndpointType.GenericTypeArguments);
+            var instance = Activator.CreateInstance(closedType, endpointType) ?? throw new Exception("Internal error - could not create instance of request handler");
 
-            services.AddSingleton(typeof(PicoEndpointRequestHandler), closedType);
+            services.AddSingleton(typeof(PicoEndpointRequestHandler), instance);
         }
 
         return services;

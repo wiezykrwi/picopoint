@@ -6,36 +6,47 @@ namespace PicoPoints;
 
 internal class PicoEndpointRequestHandler
 {
-    internal Expression BuildExpression()
+    public readonly Type EndpointType;
+
+    protected PicoEndpointRequestHandler(Type endpointType)
     {
-        var requestType = GetType().GenericTypeArguments[0];
+        EndpointType = endpointType;
+    }
+
+    internal Delegate BuildExpression()
+    {
+        var requestHandlerType = GetType();
+        var requestType = requestHandlerType.GenericTypeArguments[0];
         var requestParameter = Expression.Parameter(requestType, "request");
         var httpContextParameter = Expression.Parameter(typeof(HttpContext), "httpContext");
-        var requestHandlerConstant = Expression.Constant(this, GetType());
+        var requestHandlerConstant = Expression.Constant(this, requestHandlerType);
 
-        var processAsyncCall = Expression.Call(GetType().GetMethod(nameof(PicoEndpointRequestHandler<,>.ProcessAsync), )
+        var types = new[] { typeof(HttpContext), requestType };
+        var processMethod = requestHandlerType.GetMethod("ProcessAsync", types) ??
+                            throw new Exception("Internal error - ProcessAsync could not be found");
+        var processAsyncCall = Expression.Call(requestHandlerConstant, processMethod, httpContextParameter, requestParameter);
+
+        return Expression.Lambda(processAsyncCall, httpContextParameter, requestParameter).Compile();
+    }
+
+    internal PicoEndpointConfiguration GetConfiguration(IServiceProvider serviceProvider)
+    {
+        var picoEndpoint = (PicoEndpoint) serviceProvider.GetRequiredService(EndpointType);
+
+        return picoEndpoint.Configure();
     }
 }
 
 internal class PicoEndpointRequestHandler<TRequest, TResponse> : PicoEndpointRequestHandler
 {
-    private readonly Type _endpointType;
-    
-    internal string Route { get; set; }
-    internal string Method { get; set; }
-
-    internal PicoEndpointRequestHandler(PicoEndpoint picoEndpoint)
+    public PicoEndpointRequestHandler(Type picoEndpointType)
+        : base(picoEndpointType)
     {
-        _endpointType = picoEndpoint.GetType();
-
-        var configuration = picoEndpoint.Configure();
-        Route = configuration.Route;
-        Method = configuration.Method;
     }
 
-    internal Task ProcessAsync(HttpContext httpContext, TRequest request)
+    public Task ProcessAsync(HttpContext httpContext, TRequest request)
     {
-        var endpoint = (PicoEndpoint<TRequest, TResponse>) httpContext.RequestServices.GetRequiredService(_endpointType);
+        var endpoint = (PicoEndpoint<TRequest, TResponse>) httpContext.RequestServices.GetRequiredService(EndpointType);
 
         return endpoint.ProcessAsync(httpContext, request);
     }
