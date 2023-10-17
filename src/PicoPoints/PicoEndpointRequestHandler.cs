@@ -1,33 +1,19 @@
-﻿using System.Linq.Expressions;
-using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace PicoPoints;
 
-internal class PicoEndpointRequestHandler
+internal abstract class PicoEndpointRequestHandler
 {
-    public readonly Type EndpointType;
+    protected readonly Type EndpointType;
 
     protected PicoEndpointRequestHandler(Type endpointType)
     {
         EndpointType = endpointType;
     }
 
-    internal Delegate BuildExpression()
-    {
-        var requestHandlerType = GetType();
-        var requestType = requestHandlerType.GenericTypeArguments[0];
-        var requestParameter = Expression.Parameter(requestType, "request");
-        var httpContextParameter = Expression.Parameter(typeof(HttpContext), "httpContext");
-        var requestHandlerConstant = Expression.Constant(this, requestHandlerType);
-
-        var types = new[] { typeof(HttpContext), requestType };
-        var processMethod = requestHandlerType.GetMethod("ProcessAsync", types) ??
-                            throw new Exception("Internal error - ProcessAsync could not be found");
-        var processAsyncCall = Expression.Call(requestHandlerConstant, processMethod, httpContextParameter, requestParameter);
-
-        return Expression.Lambda(processAsyncCall, httpContextParameter, requestParameter).Compile();
-    }
+    internal abstract Delegate CreateDelegate();
 
     internal PicoEndpointConfiguration GetConfiguration(IServiceProvider serviceProvider)
     {
@@ -44,7 +30,12 @@ internal class PicoEndpointRequestHandler<TRequest, TResponse> : PicoEndpointReq
     {
     }
 
-    public Task ProcessAsync(HttpContext httpContext, TRequest request)
+    internal override Delegate CreateDelegate()
+    {
+        return (HttpContext context, [FromBody] TRequest request) => ProcessAsync(context, request);
+    }
+
+    private Task ProcessAsync(HttpContext httpContext, TRequest request)
     {
         var endpoint = (PicoEndpoint<TRequest, TResponse>) httpContext.RequestServices.GetRequiredService(EndpointType);
 
